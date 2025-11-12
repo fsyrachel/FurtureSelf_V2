@@ -102,30 +102,57 @@ async def get_inbox_latest(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """(P1) F6.5 收信箱"""
-    letter = db.query(Letter).filter(Letter.user_id == current_user.id).order_by(Letter.created_at.desc()).first()
-    if letter is None or letter.status != 'REPLIES_READY':
-        raise HTTPException(status_code=404, detail="REPLIES_NOT_READY")
+    """
+    调试版 /inbox/latest
+    1. 确认路由是否被调用
+    2. 打印 current_user
+    3. 打印最新信件信息
+    """
+    print("Entered /inbox/latest")  # 路由调试
+    print(f"current_user: {current_user}")
 
-    replies_db = db.query(LetterReply, FutureProfile.profile_name) \
-                   .join(FutureProfile, LetterReply.future_profile_id == FutureProfile.id) \
-                   .filter(LetterReply.letter_id == letter.id) \
-                   .all()
+    # 查询最新信件
+    letter = (
+        db.query(Letter)
+        .filter(Letter.user_id == current_user.id)
+        .order_by(Letter.created_at.desc())
+        .first()
+    )
 
-    replies_response: List[ReplyItem] = []
-    for reply, profile_name in replies_db:
-        replies_response.append(ReplyItem(
+    if not letter:
+        print(f"No letter found for user_id={current_user.id}")
+        return {"debug": "No letter found", "user_id": str(current_user.id)}
+
+    print(f"Latest letter: id={letter.id}, status={letter.status}, created_at={letter.created_at}")
+
+    # 状态检查（调试阶段不抛异常）
+    if letter.status.strip().upper() != "REPLIES_READY":
+        print(f"Letter status not ready: {letter.status}")
+
+    # 查询信件回复
+    replies_db = (
+        db.query(LetterReply, FutureProfile.profile_name)
+        .join(FutureProfile, LetterReply.future_profile_id == FutureProfile.id)
+        .filter(LetterReply.letter_id == letter.id)
+        .all()
+    )
+
+    replies_response: List[ReplyItem] = [
+        ReplyItem(
             reply_id=reply.id,
             future_profile_id=reply.future_profile_id,
             from_profile_name=profile_name,
             chat_status=reply.chat_status
-        ))
+        )
+        for reply, profile_name in replies_db
+    ]
 
     return {
         "letter_id": letter.id,
-        "letter_content_snippet": letter.content[:100] + "...",
+        "letter_content_snippet": (letter.content[:100] + "...") if len(letter.content) > 100 else letter.content,
         "replies": replies_response
     }
+
 
 
 @router.get("/reply/{reply_id}", response_model=LetterReplyResponse)

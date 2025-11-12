@@ -79,7 +79,7 @@ async def send_chat_message(
     logger.debug(f"F3.2.2 (API): 用户已发送 {user_message_count} 条消息。")
 
     if user_message_count >= settings.MAX_CHAT_MESSAGES: # (P1) 5
-        logger.warning(f"F3.2.2 (API): 用户 {current_user.id} 已达 5 条消息上限。")
+        logger.warning(f"F3.2.2 (API): 用户 {current_user.id} 已达 10 条消息上限。")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
             detail="MESSAGE_LIMIT_EXCEEDED"
@@ -109,6 +109,7 @@ async def send_chat_message(
     
     # 4. (P1 关键) 同步调用 AI 链 (F4.4)
     # (我们需要加载 F4.4 所需的所有数据)
+    # ai_content = f"TODO (Day 6): AI 正在处理您的第 {user_message_count + 1} 条消息。"
     current_profile = db.query(CurrentProfile).filter(CurrentProfile.user_id == current_user.id).first()
     future_profile = db.query(FutureProfile).filter(FutureProfile.id == future_profile_id).first()
     chat_history_db = db.query(ChatMessage) \
@@ -123,7 +124,6 @@ async def send_chat_message(
       raise HTTPException(status_code=404, detail="Profile data incomplete.")
 
         
-    # (P1 Day 5) (V1 妥协 B: 阉割版 AI)
     ai_content = await generate_chat_reply_service(
         db=db,
         current_profile=current_profile,

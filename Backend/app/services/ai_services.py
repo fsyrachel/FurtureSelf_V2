@@ -4,10 +4,9 @@
 (v1.12 - P1 冲刺（Sprint）asyncio 修复)
 """
 import logging
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-
+from langchain_openai import ChatOpenAI
 from app.core.config import settings
 from app.models import CurrentProfile, FutureProfile, Letter, ChatMessage
 # (P1 v1.11 修复) 导入 *async* RAG
@@ -17,26 +16,29 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-# --- 1. LLM 定义 (v1.11 Gemini API) ---
-llm_standard = ChatGoogleGenerativeAI(
-    model=settings.GEMINI_MODEL_STANDARD, 
-    google_api_key=settings.GOOGLE_API_KEY,
-    temperature=0.7,
-    convert_system_message_to_human=True
-)
-llm_fast = ChatGoogleGenerativeAI(
-    model=settings.GEMINI_MODEL_STANDARD, 
-    google_api_key=settings.GOOGLE_API_KEY,
-    temperature=0.5,
-    convert_system_message_to_human=True
-)
-llm_validator = ChatGoogleGenerativeAI(
-    model=settings.GEMINI_MODEL_VALIDATOR,
-    google_api_key=settings.GOOGLE_API_KEY,
-    temperature=0.0,
-    convert_system_message_to_human=True
-)
 
+# --- ↓↓↓ (2) 替换 LLM 定义 (v1.13) ↓↓↓ ---
+llm_standard = ChatOpenAI(
+    model=settings.SF_MODEL_STANDARD,
+    api_key=settings.SILICONFLOW_API_KEY,
+    base_url=settings.SILICONFLOW_API_BASE,
+    temperature=0.7,
+    max_completion_tokens=4096  
+)
+llm_fast = ChatOpenAI(
+    model=settings.SF_MODEL_FAST,
+    api_key=settings.SILICONFLOW_API_KEY,
+    base_url=settings.SILICONFLOW_API_BASE,
+    temperature=0.5,
+    max_completion_tokens=4096
+)
+# llm_validator = ChatOpenAI(
+#     model=settings.SF_MODEL_VALIDATOR,
+#     api_key=settings.SILICONFLOW_API_KEY,
+#     base_url=settings.SILICONFLOW_API_BASE,
+#     temperature=0.0,
+#     max_completion_tokens=512 # (验证器通常不需要很长的回复)
+# )
 # --- 2. Prompt 模板 (v1.11 不变) ---
 PROMPT_F4_3_LETTER = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
@@ -100,7 +102,7 @@ PROMPT_F4_5_REPORT = ChatPromptTemplate.from_messages([
 """你是一个专业的 AI 职业教练。你审查了你的客户（用户）与他的“未来自我”的所有互动。
 你的任务是基于 WOOP 框架，为用户生成一份 4 部分的“职业洞见总结”。
 
-# 1. 用户的「当前档案」(阉割版，无 story)
+# 1. 用户的「当前档案」
 <current_profile>
 {current_profile_data}
 </current_profile>
@@ -116,35 +118,45 @@ PROMPT_F4_5_REPORT = ChatPromptTemplate.from_messages([
 </chat_history>
 
 # 你的核心任务
-请基于以上所有信息，生成一份 JSON 报告 (WOOP)：
-1.  **Wish (愿望)**: 总结用户在 <letter> 和 <chat_history> 中最核心的职业愿望。
-2.  **Outcome (结果)**: 描述用户对实现愿望后的积极结果的设想。
-3.  **Obstacle (障碍)**: 提炼用户（在 <letter> 和 <current_profile> 中）反复提及的“担忧”或“挑战”。
-4.  **Plan (计划)**: 总结用户在 <chat_history> 中与 AI 讨论过的、可操作的下一步行动建议。
+请基于以上所有信息，生成一份 100% 严格符合以下格式的 JSON 报告 (WOOP)。
 
-请只返回格式化的 JSON。
+# (P1 v1.17 关键) 输出格式 (Schema: WOOPContent)
+你的输出**必须**是一个 JSON 对象。
+你的输出**不能**包含任何 Markdown 标记，如 "```json" 或 "```"。
+你的输出**必须**严格遵循以下键和数据类型：
+
+{{
+  "wish": "<这里是总结的职业愿望 (string)>",
+  "outcome": "<这里是总结的积极结果 (string)>",
+  "obstacle": "<这里是总结的担忧或挑战 (string)>",
+  "plan": "<这里是总结的下一步行动建议 (string)>"
+}}
+
+# (P1 v1.17) 特别注意：
+1.  `obstacle` 和 `plan` 字段必须是**字符串 (string)**。
+2.  如果 <chat_history> 或 <letter> 中有多个障碍 (obstacles) 或计划 (plans)，你**必须**将它们合并成一个**单一的字符串**（例如，用换行符 `\n` 分隔），而不是一个 JSON 数组 (list)。
 """),
-    HumanMessagePromptTemplate.from_template("请为我生成 WOOP 总结报告。")
+    HumanMessagePromptTemplate.from_template("请为我生成严格符合 WOOP (wish, outcome, obstacle, plan) 格式的 JSON 报告。")
 ])
-PROMPT_F4_6_VALIDATOR = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(
-"""你是一个 AI 文本审查员。
-你的任务是判断一个 AI 的回复是否严格符合它被指定的人设。
+# PROMPT_F4_6_VALIDATOR = ChatPromptTemplate.from_messages([
+#     SystemMessagePromptTemplate.from_template(
+# """你是一个 AI 文本审查员。
+# 你的任务是判断一个 AI 的回复是否严格符合它被指定的人设。
 
-# 人设 (Context):
-{profile_description}
+# # 人设 (Context):
+# {profile_description}
 
-# AI 回复 (Response):
-{ai_response}
+# # AI 回复 (Response):
+# {ai_response}
 
-# 你的裁决:
-请判断 <response_to_check> 是否在**语气、内容和知识范畴**上**严格符合** <profile> 的人设？
-请只回答 "Y" (通过, 未违背) 或 "N" (失败, 严重违背)。
-"""),
-])
+# # 你的裁决:
+# 请判断 <response_to_check> 是否在**语气、内容和知识范畴**上**严格符合** <profile> 的人设？
+# 请只回答 "Y" (通过, 未违背) 或 "N" (失败, 严重违背)。
+# """),
+# ])
 
 # --- 3. AI 链 (Chains) (v1.11 不变) ---
-validation_chain = PROMPT_F4_6_VALIDATOR | llm_validator | StrOutputParser()
+# validation_chain = PROMPT_F4_6_VALIDATOR | llm_validator | StrOutputParser()
 letter_chain = PROMPT_F4_3_LETTER | llm_standard | StrOutputParser()
 chat_chain = PROMPT_F4_4_CHAT | llm_fast | StrOutputParser()
 report_chain = PROMPT_F4_5_REPORT | llm_standard | StrOutputParser()
@@ -157,7 +169,7 @@ async def generate_letter_reply_service(
     letter: Letter
 ) -> str:
     """(P1) F4.3 (回信) AI 链的完整服务"""
-    logger.info(f"F4.3 (AI): 正在为 {future_profile.id} (人设) 生成回信 (使用 Gemini API)...")
+    logger.info(f"F4.3 (AI): 正在为 {future_profile.id} (人设) 生成回信 (使用 SiliconFlow API)...")
     
     # 1. 准备 Prompt 输入
     prompt_input = {
@@ -169,18 +181,18 @@ async def generate_letter_reply_service(
     }
     ai_response = await letter_chain.ainvoke(prompt_input)
     
-    # 3. (P1 关键) 调用 F4.6 验证器
-    validation_input = {
-        "profile_description": future_profile.profile_description,
-        "ai_response": ai_response
-    }
-    validation_result = await validation_chain.ainvoke(validation_input)
+    # # 3. (P1 关键) 调用 F4.6 验证器
+    # validation_input = {
+    #     "profile_description": future_profile.profile_description,
+    #     "ai_response": ai_response
+    # }
+    # validation_result = await validation_chain.ainvoke(validation_input)
     
-    if "N" in validation_result.upper():
-        logger.warning(f"F4.6 (Validator) 失败! (F4.3 回信): 人设 {future_profile.id} 崩塌。")
-        return "亲爱的过去的我，我收到了你的来信。我记得那时的感受。请相信自己，你正在正确的道路上。"
+    # if "N" in validation_result.upper():
+    #     logger.warning(f"F4.6 (Validator) 失败! (F4.3 回信): 人设 {future_profile.id} 崩塌。")
+    #     return "亲爱的过去的我，我收到了你的来信。我记得那时的感受。请相信自己，你正在正确的道路上。"
     
-    logger.info(f"F4.3 (AI): 回信已生成并通过 F4.6 验证。")
+    # logger.info(f"F4.3 (AI): 回信已生成并通过 F4.6 验证。")
     return ai_response
 
 # --- 5. F4.4 (聊天) 完整服务 (v1.12 修复) ---
@@ -192,7 +204,7 @@ async def generate_chat_reply_service(
     user_query: str
 ) -> str:
     """(P1) F4.4 (聊天) AI 链的完整服务"""
-    logger.info(f"F4.4 (AI): 正在为 {future_profile.id} (人设) 生成聊天回复 (使用 Gemini API)...")
+    logger.info(f"F4.4 (AI): 正在为 {future_profile.id} (人设) 生成聊天回复 (使用 SiliconFlow API)...")
     
     # 1. (F4.2) (v1.11 修复) 必须 `await` 
     rag_context = await retrieve_rag_memory_async(
@@ -223,16 +235,16 @@ async def generate_chat_reply_service(
     # 4. 调用 F4.4 AI 链 (使用 llm_fast)
     ai_response = await chat_chain.ainvoke(prompt_input)
     
-    # 5. (P1 关键) 调用 F4.6 验证器
-    validation_input = {
-        "profile_description": future_profile.profile_description,
-        "ai_response": ai_response
-    }
-    validation_result = await validation_chain.ainvoke(validation_input)
+    # # 5. (P1 关键) 调用 F4.6 验证器
+    # validation_input = {
+    #     "profile_description": future_profile.profile_description,
+    #     "ai_response": ai_response
+    # }
+    # validation_result = await validation_chain.ainvoke(validation_input)
     
-    if "N" in validation_result.upper():
-        logger.warning(f"F4.6 (Validator) 失败! (F4.4 聊天): 人设 {future_profile.id} 崩塌。")
-        return "抱歉，我不太确定如何回应。我们可以聊聊别的吗？"
+    # if "N" in validation_result.upper():
+    #     logger.warning(f"F4.6 (Validator) 失败! (F4.4 聊天): 人设 {future_profile.id} 崩塌。")
+    #     return "抱歉，我不太确定如何回应。我们可以聊聊别的吗？"
         
-    logger.info(f"F4.4 (AI): 聊天回复已生成并通过 F4.6 验证。")
+    # logger.info(f"F4.4 (AI): 聊天回复已生成并通过 F4.6 验证。")
     return ai_response

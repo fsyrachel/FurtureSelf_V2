@@ -5,6 +5,7 @@
 """
 from pydantic_settings import BaseSettings
 from typing import List
+from pydantic import SecretStr
 
 class Settings(BaseSettings):
     # 应用信息 (来自您的 main.py)
@@ -23,18 +24,22 @@ class Settings(BaseSettings):
 
     # 数据库 (DB v1.3)
     DATABASE_URL: str = "postgresql+psycopg2://futureself:futureself@localhost:5432/futureself_db"
-
+  
     # 异步任务 (P1)
     REDIS_URL: str = "redis://localhost:6379/0"
-    # (P1 v1.11 变更)
-    GOOGLE_API_KEY: str = "AIzaSyAzGUb2a9Smg5-vNcT-CA27_TfeeOBEXJs"# (P1 v1.11)
+    # # (P1 v1.11 变更)
+    # GOOGLE_API_KEY: str = "AIzaSyAzGUb2a9Smg5-vNcT-CA27_TfeeOBEXJs"# (P1 v1.11)
     
-    # (P1 v1.11) Gemini (Chat)
-    GEMINI_MODEL_STANDARD: str = "gemini-2.5-pro"
-    GEMINI_MODEL_VALIDATOR: str = "gemini-2.5-flash"
+    # # (P1 v1.11) Gemini (Chat)
+    # GEMINI_MODEL_STANDARD: str = "gemini-2.5-flash"
+    # GEMINI_MODEL_VALIDATOR: str = "gemini-2.5-flash"
+    # BASE_URL : str = "https://www.chataiapi.com"
+    # OPEN_API_KEY: str = "sk-i9V9UPL3RLOS43zeSgVFxR4V2vwRpoceRLkbIXgkf6sU7rvi"  # (P1 v1.10)
     # LLM (P1)
-    SILICONFLOW_API_KEY: str = "sk-ebosnxfdepqjdfxeghinihzjdtdofoadwkflfgmgihsqvkgx"# (P1 v1.10)
-
+    SILICONFLOW_API_KEY: str = "sk-ebosnxfdepqjdfxeghinihzjdtdofoadwkflfgmgihsqvkgx" # (P1 v1.10)
+    SF_MODEL_STANDARD: str = "moonshotai/Kimi-K2-Thinking" # (示例: 一个强大的模型)
+    SF_MODEL_FAST: str = "moonshotai/Kimi-K2-Thinking"                      # (示例: 一个快速的模型)
+    SF_MODEL_VALIDATOR: str = "deepseek-ai/DeepSeek-V3.2-Exp"
 
     # (P1 DB v1.3) 加密密钥 (必须 32 字节)
     ENCRYPTION_KEY: str = "0123456789abcdef0123456789abcdef" 

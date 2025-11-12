@@ -1,9 +1,4 @@
-# 位于: Backend/app/schemas.py
-"""
-(P1 关键) Pydantic Schemas
-这是 FRD v1.11 (新问卷) 的 API 数据模型 (Schemas)。
-它 100% 匹配 Tech Specs v1.5 的 API 规范。
-"""
+
 from pydantic import BaseModel, Field, conint, confloat, constr
 from typing import List, Dict, Any, Optional
 import uuid
@@ -112,14 +107,14 @@ class ChatMessageResponse(BaseModel):
     message_id: uuid.UUID
     sender: str # 'AGENT'
     content: str
-    created_at: str
+    created_at: datetime
 
 # --- (Day 5/6 新增) F3.2.3 (Chat History) ---
 class ChatHistoryResponse(BaseModel):
     message_id: uuid.UUID
     sender: str # 'USER' or 'AGENT'
     content: str
-    created_at: str
+    created_at: datetime
 
 # --- (Day 7 新增) F5.1 (Report Generate) ---
 class ReportGenerateResponse(BaseModel):
@@ -132,10 +127,10 @@ class ReportStatusResponse(BaseModel):
 
 # --- (Day 7 新增) F5.2 (Report View) ---
 class WOOPContent(BaseModel):
-    W: str = Field(..., alias="Wish")
-    O: str = Field(..., alias="Outcome")
-    O2: str = Field(..., alias="Obstacle")
-    P: str = Field(..., alias="Plan")
+    wish: str # (v1.13) (Wish)
+    outcome: str # (v1.13) (Outcome)
+    obstacle: str # (v1.13) (Obstacle)
+    plan: str # (v1.13) (Plan)
 
 class ReportResponse(BaseModel):
     report_id: uuid.UUID
