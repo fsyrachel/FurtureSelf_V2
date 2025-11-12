@@ -405,7 +405,7 @@ async function pollLetterStatus(userId) {
 
 ### 3.3 获取收信箱 (F6.5)
 
-**GET** `/inbox/latest`
+**GET** `/letters/inbox/latest`
 
 #### 功能描述
 - P0 核心功能
