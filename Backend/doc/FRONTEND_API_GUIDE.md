@@ -702,6 +702,389 @@ async function handleApiError(response) {
 
 ---
 
+## 📊 报告生成接口和交互逻辑
+
+### 1. 触发报告生成
+
+**接口**: `POST /api/v1/reports/generate`
+
+**Query参数**: `user_id` (必填)
+
+**响应** (202 Accepted):
+```json
+{
+  "report_id": "uuid",
+  "status": "GENERATING"
+}
+```
+
+**重要特性**:
+- ✅ **支持重试**: 如果报告状态为 `FAILED` 或 `GENERATING`，可以重新调用此接口
+- ✅ **自动处理**: 后端会自动重置状态并重新触发处理
+- ❌ **防止重复**: 如果状态为 `READY`（已成功），会返回 400 错误
+
+---
+
+### 2. 轮询报告状态
+
+**接口**: `GET /api/v1/reports/status`
+
+**Query参数**: `user_id` (必填)
+
+**响应** (200 OK):
+
+**情况1: 生成中**
+```json
+{
+  "status": "GENERATING"
+}
+```
+
+**情况2: 生成成功**
+```json
+{
+  "status": "READY"
+}
+```
+
+**情况3: 生成失败**
+```json
+{
+  "status": "FAILED"
+}
+```
+
+**关键说明**:
+- 报告生成失败时，状态为 `FAILED`，用户可以重新调用 `/generate` 接口重试
+- 报告生成成功后，状态为 `READY`，可以调用 `/latest` 接口获取报告内容
+
+---
+
+## 🔄 报告生成完整交互流程
+
+### 场景1: 正常流程（成功）
+
+```
+1. 用户完成5条聊天后，自动触发报告生成
+   ↓
+2. 调用 POST /reports/generate
+   ↓
+3. 收到 202 响应，跳转到等待页
+   ↓
+4. 开始轮询 GET /reports/status（每3秒一次）
+   ↓
+5. 收到 status: "GENERATING"（继续等待）
+   ↓
+6. 继续轮询...
+   ↓
+7. 收到 status: "READY"
+   ↓
+8. 调用 GET /reports/latest 获取报告内容
+   ↓
+9. 跳转到报告展示页面 ✅
+```
+
+### 场景2: 失败后重试
+
+```
+1. 用户完成5条聊天后，自动触发报告生成
+   ↓
+2. 调用 POST /reports/generate
+   ↓
+3. 收到 202 响应，跳转到等待页
+   ↓
+4. 开始轮询 GET /reports/status
+   ↓
+5. 收到 status: "GENERATING"（继续等待）
+   ↓
+6. 继续轮询...
+   ↓
+7. 收到 status: "FAILED"
+   ↓
+8. 显示错误提示："报告生成失败，请重试"
+   ↓
+9. 用户点击"重新生成"按钮，再次调用 POST /reports/generate（使用相同接口）
+   ↓
+10. 重新开始轮询流程...
+```
+
+---
+
+## 💻 报告生成前端实现示例
+
+### 1. 触发报告生成函数
+
+```javascript
+async function generateReport(userId) {
+  try {
+    const response = await fetch(
+      `/api/v1/reports/generate?user_id=${userId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+    
+    if (response.status === 202) {
+      const data = await response.json();
+      // 跳转到等待页
+      navigate('/waiting-report');
+      // 开始轮询
+      pollReportStatus(userId);
+      return { success: true, reportId: data.report_id };
+    } else if (response.status === 400) {
+      const error = await response.json();
+      if (error.detail === 'REPORT_ALREADY_GENERATED') {
+        // 报告已成功生成，跳转到报告页
+        navigate('/report');
+        return { success: true, alreadyGenerated: true };
+      }
+      throw new Error(error.detail);
+    } else {
+      throw new Error('生成报告失败');
+    }
+  } catch (error) {
+    console.error('生成报告失败:', error);
+    showError('生成报告失败，请重试');
+    return { success: false, error: error.message };
+  }
+}
+```
+
+### 2. 轮询报告状态函数
+
+```javascript
+async function pollReportStatus(userId) {
+  const maxAttempts = 60; // 最多轮询60次（3分钟）
+  let attempts = 0;
+  
+  const poll = async () => {
+    try {
+      const response = await fetch(
+        `/api/v1/reports/status?user_id=${userId}`
+      );
+      
+      if (!response.ok) {
+        throw new Error('获取状态失败');
+      }
+      
+      const data = await response.json();
+      
+      // 成功：获取报告内容并跳转
+      if (data.status === 'READY') {
+        // 获取报告内容
+        const reportData = await fetchLatestReport(userId);
+        if (reportData.success) {
+          navigate('/report', { state: { report: reportData.report } });
+        }
+        return { success: true };
+      }
+      
+      // 失败：显示错误提示，允许重试
+      if (data.status === 'FAILED') {
+        showError('报告生成失败，请点击"重新生成"按钮重试');
+        // 显示重试按钮
+        setShowRetryButton(true);
+        return { success: false, error: 'FAILED', canRetry: true };
+      }
+      
+      // 生成中：继续轮询
+      if (data.status === 'GENERATING') {
+        attempts++;
+        if (attempts >= maxAttempts) {
+          // 超时：显示错误提示
+          showError('报告生成超时，请点击"重新生成"按钮重试');
+          setShowRetryButton(true);
+          return { success: false, error: 'TIMEOUT', canRetry: true };
+        }
+        
+        // 3秒后继续轮询
+        setTimeout(poll, 3000);
+        return { success: false, status: 'GENERATING' };
+      }
+      
+    } catch (error) {
+      console.error('轮询失败:', error);
+      // 网络错误时，可以继续重试
+      attempts++;
+      if (attempts < maxAttempts) {
+        setTimeout(poll, 3000);
+      } else {
+        showError('网络错误，请检查连接后重试');
+        setShowRetryButton(true);
+      }
+    }
+  };
+  
+  // 开始轮询
+  poll();
+}
+```
+
+### 3. 获取报告内容函数
+
+```javascript
+async function fetchLatestReport(userId) {
+  try {
+    const response = await fetch(
+      `/api/v1/reports/latest?user_id=${userId}`
+    );
+    
+    if (response.status === 404) {
+      // 报告未准备好
+      return { success: false, error: 'REPORT_NOT_READY' };
+    }
+    
+    if (!response.ok) {
+      throw new Error('获取报告失败');
+    }
+    
+    const data = await response.json();
+    return { success: true, report: data };
+  } catch (error) {
+    console.error('获取报告失败:', error);
+    showError('获取报告失败，请重试');
+    return { success: false, error: error.message };
+  }
+}
+```
+
+### 4. 等待页组件示例
+
+```javascript
+function WaitingReportPage() {
+  const [showRetryButton, setShowRetryButton] = useState(false);
+  const userId = getUserId();
+  
+  useEffect(() => {
+    // 页面加载时开始轮询
+    pollReportStatus(userId);
+  }, [userId]);
+  
+  const handleRetry = async () => {
+    setShowRetryButton(false);
+    const result = await generateReport(userId);
+    if (result.success) {
+      // 重新开始轮询（在 generateReport 中已处理）
+    }
+  };
+  
+  return (
+    <div>
+      <h2>正在生成您的职业洞见报告...</h2>
+      <p>这可能需要几分钟时间，请耐心等待</p>
+      
+      {showRetryButton && (
+        <div>
+          <p>报告生成失败，请重试</p>
+          <button onClick={handleRetry}>重新生成</button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+## ⚠️ 报告生成错误处理
+
+### 常见错误码
+
+| HTTP状态码 | 错误信息 | 处理方式 |
+|-----------|---------|---------|
+| 400 | `REPORT_ALREADY_GENERATED` | 报告已成功生成，跳转到报告页 |
+| 400 | `报告状态为 XXX，无法生成` | 显示错误提示，不允许生成 |
+| 404 | `REPORT_NOT_FOUND` | 没有报告，显示空状态 |
+| 404 | `REPORT_NOT_READY` | 报告未准备好，继续等待或显示提示 |
+| 500 | 服务器错误 | 显示错误提示，允许重试 |
+
+### 错误处理示例
+
+```javascript
+async function handleReportApiError(response) {
+  if (response.status === 400) {
+    const error = await response.json();
+    
+    if (error.detail === 'REPORT_ALREADY_GENERATED') {
+      // 已成功，跳转到报告页
+      navigate('/report');
+      return;
+    }
+    
+    // 其他400错误
+    showError(error.detail || '请求参数错误');
+    return;
+  }
+  
+  if (response.status === 404) {
+    const error = await response.json();
+    if (error.detail === 'REPORT_NOT_READY') {
+      // 报告未准备好，继续等待
+      return;
+    }
+    // 没有报告，可能是首次访问
+    return;
+  }
+  
+  if (response.status >= 500) {
+    // 服务器错误，允许重试
+    showError('服务器错误，请稍后重试');
+    return;
+  }
+}
+```
+
+---
+
+## 🔑 报告生成关键要点总结
+
+### ✅ 必须实现的功能
+
+1. **状态轮询**: 生成后每3秒轮询一次状态，最多轮询60次（3分钟）
+2. **失败处理**: 检测到 `FAILED` 状态时，显示错误提示和重试按钮
+3. **统一接口**: 首次生成和重试都使用同一个 `POST /reports/generate` 接口
+4. **报告获取**: 状态为 `READY` 时，调用 `GET /reports/latest` 获取报告内容
+
+### 📝 注意事项
+
+1. **状态判断**:
+   - `GENERATING`: 继续轮询，显示"正在生成"提示
+   - `READY`: 获取报告内容，跳转到报告展示页
+   - `FAILED`: 显示错误提示，提供重试按钮
+
+2. **重试逻辑**:
+   - 用户点击"重新生成"按钮，直接调用 `POST /reports/generate`（与首次生成相同）
+   - 后端会自动识别是重试还是首次生成
+   - 不需要额外的重试接口
+
+3. **用户体验**:
+   - 生成中显示友好的等待提示
+   - 失败时显示清晰的错误提示
+   - 提供"重新生成"按钮（调用相同的生成接口）
+
+---
+
+## 📞 报告生成后端自动重试机制
+
+后端已实现自动重试（前端无需处理）：
+
+- **重试次数**: 最多3次
+- **重试间隔**: 指数退避（60秒、120秒、240秒）
+- **失败处理**: 3次重试都失败后，状态更新为 `FAILED`
+- **前端行为**: 检测到 `FAILED` 状态后，显示错误提示让用户手动重试
+
+---
+
+## 🧪 报告生成测试建议
+
+1. **正常流程测试**: 生成→轮询→成功→获取报告
+2. **失败流程测试**: 生成→轮询→失败→重试
+3. **超时测试**: 轮询60次后仍未成功，应该显示超时提示
+4. **网络错误测试**: 轮询时网络中断，应该继续重试或提示用户
+
+---
+
 **文档版本**: v1.0  
 **最后更新**: 2025-01-XX  
 **维护者**: 后端开发团队
