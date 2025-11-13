@@ -1310,11 +1310,15 @@ async function handleReportApiError(response) {
    ↓
 2. 前端验证消息内容（1-1000字符）
    ↓
-3. 调用 POST /chat/{future_profile_id}/send
+3. 立即禁用发送按钮和输入框，显示"等待AI回复..."
    ↓
-4. 收到 200 响应，显示AI回复
+4. 调用 POST /chat/{future_profile_id}/send
    ↓
-5. 更新消息列表 ✅
+5. 收到 200 响应，显示AI回复
+   ↓
+6. 重新启用发送按钮和输入框
+   ↓
+7. 更新消息列表 ✅
 ```
 
 ### 场景2: AI服务错误（不计次，手动重试）
@@ -1324,16 +1328,20 @@ async function handleReportApiError(response) {
    ↓
 2. 前端验证消息内容
    ↓
-3. 调用 POST /chat/{future_profile_id}/send
+3. 立即禁用发送按钮和输入框，显示"等待AI回复..."
    ↓
-4. 收到 500 错误，detail: "LLM_ERROR"
+4. 调用 POST /chat/{future_profile_id}/send
    ↓
-5. 弹窗提示："AI服务暂时不可用，是否重试？"（可以美化一下）
+5. 收到 500 错误，detail: "LLM_ERROR"
    ↓
-6. 用户选择重试 → 重新调用接口
+6. 重新启用发送按钮和输入框
+   ↓
+7. 弹窗提示："AI服务暂时不可用，是否重试？"（可以美化一下）
+   ↓
+8. 用户选择重试 → 重新调用接口（再次禁用按钮）
    用户选择取消 → 保留输入内容，允许稍后重试
    ↓
-7. 如果重试成功，显示AI回复 ✅
+9. 如果重试成功，显示AI回复 ✅
 ```
 
 ### 场景3: 达到5条限制
@@ -1483,7 +1491,7 @@ function ChatPage({ futureProfileId }) {
       return;
     }
     
-    setIsSending(true);
+    setIsSending(true); // 立即禁用发送按钮，等待AI回复
     
     // 先显示用户消息（乐观更新）
     const userMessage = {
@@ -1521,7 +1529,7 @@ function ChatPage({ futureProfileId }) {
       }
     }
     
-    setIsSending(false);
+    setIsSending(false); // 重新启用发送按钮（无论成功或失败）
   };
   
   const handleGenerateReport = async () => {
@@ -1556,7 +1564,7 @@ function ChatPage({ futureProfileId }) {
               value={inputContent}
               onChange={(e) => setInputContent(e.target.value)}
               placeholder="输入消息..."
-              disabled={isSending}
+              disabled={isSending} // 等待AI回复时禁用输入框
               maxLength={1000}
             />
             <div className="char-count">
@@ -1564,9 +1572,9 @@ function ChatPage({ futureProfileId }) {
             </div>
             <button 
               onClick={handleSend} 
-              disabled={isSending || !inputContent.trim()}
+              disabled={isSending || !inputContent.trim()} // 等待AI回复时禁用发送按钮
             >
-              {isSending ? '发送中...' : '发送'}
+              {isSending ? '等待AI回复...' : '发送'}
             </button>
           </>
         ) : (
@@ -1647,7 +1655,9 @@ function ChatPage({ futureProfileId }) {
    - 可以从聊天历史中统计，或从API响应中获取
 
 4. **用户体验**:
-   - 发送中显示加载状态
+   - 发送消息后立即禁用发送按钮和输入框，防止重复发送
+   - 等待AI回复期间显示"等待AI回复..."状态
+   - 收到AI回复或失败后重新启用按钮和输入框
    - 失败时显示清晰的错误提示
    - 提供重试选项（AI错误时）
 
