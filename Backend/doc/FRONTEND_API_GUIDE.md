@@ -267,22 +267,175 @@ function validateChatMessage(content) {
   
   return true;
 }
+```
 
-// 使用示例
+#### 重试机制说明
+
+**⚠️ 重要特性**:
+- ✅ **AI错误不计次**: 如果AI服务调用失败（网络错误、超时等），用户消息不会被保存，**不会占用5次限制**
+- ✅ **手动重试**: AI错误时前端需要弹窗提示用户，让用户手动重试
+- ✅ **自动回滚**: 后端会自动回滚用户消息，确保数据一致性
+
+**错误处理**:
+- `500 LLM_ERROR`: AI服务错误，不计次，需要弹窗让用户重试
+- `403 MESSAGE_LIMIT_EXCEEDED`: 已达到5条消息上限，发送按钮变成"生成报告"按钮
+- `404 Profile data incomplete`: 数据不完整，需要检查用户档案
+
+#### 前端实现示例（带重试机制）
+
+```javascript
 async function sendChatMessage(futureProfileId, content) {
   // ✅ 先进行前端验证
   if (!validateChatMessage(content)) {
     return { success: false, error: 'VALIDATION_FAILED' };
   }
   
-  // 验证通过后再提交
-  const response = await fetch(`/api/v1/chat/${futureProfileId}/send`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content })
+  try {
+    const response = await fetch(`/api/v1/chat/${futureProfileId}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content })
+    });
+    
+    if (response.status === 200) {
+      // 成功：返回AI回复
+      const data = await response.json();
+      return { success: true, message: data };
+    } else if (response.status === 403) {
+      // 达到5条限制（理论上不应该到达这里，因为前端会先检查）
+      const error = await response.json();
+      if (error.detail === 'MESSAGE_LIMIT_EXCEEDED') {
+        // 触发按钮切换为"生成报告"
+        return { success: false, error: 'MESSAGE_LIMIT_EXCEEDED' };
+      }
+    } else if (response.status === 500) {
+      // AI服务错误：不计次，需要弹窗让用户重试
+      const error = await response.json();
+      if (error.detail === 'LLM_ERROR') {
+        // 弹窗提示用户重试
+        const shouldRetry = await showRetryModal(
+          'AI服务暂时不可用，是否重试？',
+          '您的消息未发送，不会占用次数限制'
+        );
+        
+        if (shouldRetry) {
+          // 用户选择重试，递归调用
+          return await sendChatMessage(futureProfileId, content);
+        } else {
+          return { success: false, error: 'LLM_ERROR', canRetry: true };
+        }
+      }
+    } else if (response.status === 404) {
+      // 数据不完整
+      const error = await response.json();
+      showErrorModal('用户档案数据不完整，请先完善个人信息');
+      return { success: false, error: 'PROFILE_INCOMPLETE' };
+    } else {
+      throw new Error('发送消息失败');
+    }
+  } catch (error) {
+    console.error('发送消息失败:', error);
+    // 网络错误：弹窗让用户重试
+    const shouldRetry = await showRetryModal(
+      '网络错误，是否重试？',
+      '您的消息未发送，不会占用次数限制'
+    );
+    
+    if (shouldRetry) {
+      return await sendChatMessage(futureProfileId, content);
+    }
+    
+    return { success: false, error: 'NETWORK_ERROR', canRetry: true };
+  }
+}
+
+// 重试确认弹窗
+function showRetryModal(title, message) {
+  return new Promise((resolve) => {
+    // 使用你的 UI 库显示确认弹窗
+    // 例如：使用 Ant Design、Material-UI、Element UI 等
+    const userChoice = confirm(`${title}\n${message}\n\n点击"确定"重试，点击"取消"放弃发送`);
+    resolve(userChoice);
   });
+}
+```
+
+#### 聊天组件示例（带重试）
+
+```javascript
+function ChatPage({ futureProfileId }) {
+  const [messages, setMessages] = useState([]);
+  const [inputContent, setInputContent] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const userId = getUserId();
   
-  // ... 处理响应
+  const handleSend = async () => {
+    if (isSending) return; // 防止重复发送
+    
+    // 前端验证
+    if (!validateChatMessage(inputContent)) {
+      return;
+    }
+    
+    setIsSending(true);
+    
+    // 先显示用户消息（乐观更新）
+    const userMessage = {
+      id: Date.now(),
+      sender: 'USER',
+      content: inputContent,
+      created_at: new Date()
+    };
+    setMessages(prev => [...prev, userMessage]);
+    
+    // 保存输入内容（用于重试）
+    const contentToSend = inputContent;
+    setInputContent(''); // 清空输入框
+    
+    // 发送消息
+    const result = await sendChatMessage(futureProfileId, contentToSend);
+    
+    if (result.success) {
+      // 成功：添加AI回复
+      setMessages(prev => [...prev, result.message]);
+    } else {
+      // 失败：移除用户消息（因为后端已回滚）
+      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
+      
+      // 恢复输入内容（如果用户想重试）
+      if (result.canRetry) {
+        setInputContent(contentToSend);
+      }
+    }
+    
+    setIsSending(false);
+  };
+  
+  return (
+    <div>
+      {/* 消息列表 */}
+      <div className="messages">
+        {messages.map(msg => (
+          <div key={msg.id} className={`message ${msg.sender.toLowerCase()}`}>
+            {msg.content}
+          </div>
+        ))}
+      </div>
+      
+      {/* 输入框 */}
+      <div className="input-area">
+        <textarea
+          value={inputContent}
+          onChange={(e) => setInputContent(e.target.value)}
+          placeholder="输入消息..."
+          disabled={isSending}
+        />
+        <button onClick={handleSend} disabled={isSending}>
+          {isSending ? '发送中...' : '发送'}
+        </button>
+      </div>
+    </div>
+  );
 }
 ```
 
@@ -1082,6 +1235,442 @@ async function handleReportApiError(response) {
 2. **失败流程测试**: 生成→轮询→失败→重试
 3. **超时测试**: 轮询60次后仍未成功，应该显示超时提示
 4. **网络错误测试**: 轮询时网络中断，应该继续重试或提示用户
+
+---
+
+## 💬 实时聊天接口和重试机制
+
+### 1. 发送聊天消息
+
+**接口**: `POST /api/v1/chat/{future_profile_id}/send`
+
+**路径参数**: `future_profile_id` (必填)
+
+**请求体**:
+```json
+{
+  "content": "消息内容（1-1000字符）"
+}
+```
+
+**Query参数**: `user_id` (必填)
+
+**响应** (200 OK):
+```json
+{
+  "message_id": "uuid",
+  "sender": "AGENT",
+  "content": "AI回复内容",
+  "created_at": "2024-01-01T12:00:00Z"
+}
+```
+
+**重要特性**:
+- ✅ **AI错误不计次**: 如果AI服务调用失败，用户消息不会被保存，**不会占用5次限制**
+- ✅ **手动重试**: AI错误时前端需要弹窗提示用户，让用户手动重试
+- ✅ **自动回滚**: 后端会自动回滚用户消息，确保数据一致性
+- ❌ **次数限制**: 每个未来档案最多发送5条用户消息
+
+---
+
+### 2. 获取聊天历史
+
+**接口**: `GET /api/v1/chat/{future_profile_id}/history`
+
+**路径参数**: `future_profile_id` (必填)
+
+**Query参数**: `user_id` (必填)
+
+**响应** (200 OK):
+```json
+[
+  {
+    "message_id": "uuid",
+    "sender": "USER",
+    "content": "用户消息",
+    "created_at": "2024-01-01T12:00:00Z"
+  },
+  {
+    "message_id": "uuid",
+    "sender": "AGENT",
+    "content": "AI回复",
+    "created_at": "2024-01-01T12:01:00Z"
+  }
+]
+```
+
+---
+
+## 🔄 聊天消息完整交互流程
+
+### 场景1: 正常流程（成功）
+
+```
+1. 用户输入消息并点击发送
+   ↓
+2. 前端验证消息内容（1-1000字符）
+   ↓
+3. 调用 POST /chat/{future_profile_id}/send
+   ↓
+4. 收到 200 响应，显示AI回复
+   ↓
+5. 更新消息列表 ✅
+```
+
+### 场景2: AI服务错误（不计次，手动重试）
+
+```
+1. 用户输入消息并点击发送
+   ↓
+2. 前端验证消息内容
+   ↓
+3. 调用 POST /chat/{future_profile_id}/send
+   ↓
+4. 收到 500 错误，detail: "LLM_ERROR"
+   ↓
+5. 弹窗提示："AI服务暂时不可用，是否重试？"（可以美化一下）
+   ↓
+6. 用户选择重试 → 重新调用接口
+   用户选择取消 → 保留输入内容，允许稍后重试
+   ↓
+7. 如果重试成功，显示AI回复 ✅
+```
+
+### 场景3: 达到5条限制
+
+```
+1. 用户发送第5条消息后，消息计数达到5
+   ↓
+2. 发送按钮自动变成"生成报告"按钮
+   ↓
+3. 用户点击"生成报告"按钮
+   ↓
+4. 调用 POST /reports/generate
+   ↓
+5. 跳转到报告等待页，开始生成报告 ✅
+```
+
+---
+
+## 💻 聊天消息前端实现示例
+
+### 1. 发送消息函数（带重试机制）
+
+```javascript
+async function sendChatMessage(futureProfileId, content) {
+  // ✅ 先进行前端验证
+  if (!validateChatMessage(content)) {
+    return { success: false, error: 'VALIDATION_FAILED' };
+  }
+  
+  try {
+    const response = await fetch(
+      `/api/v1/chat/${futureProfileId}/send?user_id=${getUserId()}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+      }
+    );
+    
+    if (response.status === 200) {
+      // 成功：返回AI回复
+      const data = await response.json();
+      return { success: true, message: data };
+    } else if (response.status === 403) {
+      // 达到5条限制（理论上不应该到达这里，因为前端会先检查）
+      const error = await response.json();
+      if (error.detail === 'MESSAGE_LIMIT_EXCEEDED') {
+        // 触发按钮切换为"生成报告"
+        return { success: false, error: 'MESSAGE_LIMIT_EXCEEDED' };
+      }
+    } else if (response.status === 500) {
+      // AI服务错误：不计次，需要弹窗让用户重试
+      const error = await response.json();
+      if (error.detail === 'LLM_ERROR') {
+        // 弹窗提示用户重试
+        const shouldRetry = await showRetryModal(
+          'AI服务暂时不可用，是否重试？',
+          '您的消息未发送，不会占用次数限制'
+        );
+        
+        if (shouldRetry) {
+          // 用户选择重试，递归调用
+          return await sendChatMessage(futureProfileId, content);
+        } else {
+          return { success: false, error: 'LLM_ERROR', canRetry: true };
+        }
+      }
+    } else if (response.status === 404) {
+      // 数据不完整
+      const error = await response.json();
+      showErrorModal('用户档案数据不完整，请先完善个人信息');
+      return { success: false, error: 'PROFILE_INCOMPLETE' };
+    } else {
+      throw new Error('发送消息失败');
+    }
+  } catch (error) {
+    console.error('发送消息失败:', error);
+    // 网络错误：弹窗让用户重试
+    const shouldRetry = await showRetryModal(
+      '网络错误，是否重试？',
+      '您的消息未发送，不会占用次数限制'
+    );
+    
+    if (shouldRetry) {
+      return await sendChatMessage(futureProfileId, content);
+    }
+    
+    return { success: false, error: 'NETWORK_ERROR', canRetry: true };
+  }
+}
+
+// 重试确认弹窗
+function showRetryModal(title, message) {
+  return new Promise((resolve) => {
+    // 使用你的 UI 库显示确认弹窗
+    // 例如：使用 Ant Design、Material-UI、Element UI 等
+    const userChoice = confirm(`${title}\n${message}\n\n点击"确定"重试，点击"取消"放弃发送`);
+    resolve(userChoice);
+  });
+}
+```
+
+### 2. 聊天组件示例（完整实现）
+
+```javascript
+function ChatPage({ futureProfileId }) {
+  const [messages, setMessages] = useState([]);
+  const [inputContent, setInputContent] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [messageCount, setMessageCount] = useState(0);
+  const userId = getUserId();
+  
+  // 加载聊天历史
+  useEffect(() => {
+    loadChatHistory();
+  }, [futureProfileId]);
+  
+  const loadChatHistory = async () => {
+    try {
+      const response = await fetch(
+        `/api/v1/chat/${futureProfileId}/history?user_id=${userId}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setMessages(data);
+        // 统计用户消息数量
+        const userMsgCount = data.filter(msg => msg.sender === 'USER').length;
+        setMessageCount(userMsgCount);
+      }
+    } catch (error) {
+      console.error('加载聊天历史失败:', error);
+    }
+  };
+  
+  const handleSend = async () => {
+    if (isSending) return; // 防止重复发送
+    
+    // 检查是否达到5条限制，如果达到则触发生成报告
+    if (messageCount >= 5) {
+      // 跳转到生成报告流程
+      navigate('/generate-report');
+      return;
+    }
+    
+    // 前端验证
+    if (!validateChatMessage(inputContent)) {
+      return;
+    }
+    
+    setIsSending(true);
+    
+    // 先显示用户消息（乐观更新）
+    const userMessage = {
+      id: Date.now(),
+      sender: 'USER',
+      content: inputContent,
+      created_at: new Date()
+    };
+    setMessages(prev => [...prev, userMessage]);
+    
+    // 保存输入内容（用于重试）
+    const contentToSend = inputContent;
+    setInputContent(''); // 清空输入框
+    
+    // 发送消息
+    const result = await sendChatMessage(futureProfileId, contentToSend);
+    
+    if (result.success) {
+      // 成功：添加AI回复
+      setMessages(prev => [...prev, result.message]);
+      setMessageCount(prev => prev + 1); // 增加用户消息计数
+    } else {
+      // 失败：移除用户消息（因为后端已回滚，不计次）
+      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
+      
+      // 恢复输入内容（如果用户想重试）
+      if (result.canRetry) {
+        setInputContent(contentToSend);
+      }
+      
+      // 如果是达到限制，更新计数并触发按钮切换
+      if (result.error === 'MESSAGE_LIMIT_EXCEEDED') {
+        setMessageCount(5);
+        // 此时按钮会自动切换为"生成报告"（通过条件渲染）
+      }
+    }
+    
+    setIsSending(false);
+  };
+  
+  const handleGenerateReport = async () => {
+    // 调用报告生成接口
+    const result = await generateReport(userId);
+    if (result.success) {
+      // 跳转到报告等待页（在 generateReport 中已处理）
+    }
+  };
+  
+  return (
+    <div className="chat-page">
+      {/* 消息列表 */}
+      <div className="messages">
+        {messages.map(msg => (
+          <div key={msg.message_id} className={`message ${msg.sender.toLowerCase()}`}>
+            <div className="sender">{msg.sender === 'USER' ? '我' : 'AI'}</div>
+            <div className="content">{msg.content}</div>
+            <div className="time">{new Date(msg.created_at).toLocaleTimeString()}</div>
+          </div>
+        ))}
+      </div>
+      
+      {/* 输入区域 */}
+      <div className="input-area">
+        <div className="message-count">
+          已发送 {messageCount} / 5 条消息
+        </div>
+        {messageCount < 5 ? (
+          <>
+            <textarea
+              value={inputContent}
+              onChange={(e) => setInputContent(e.target.value)}
+              placeholder="输入消息..."
+              disabled={isSending}
+              maxLength={1000}
+            />
+            <div className="char-count">
+              {inputContent.length} / 1000 字符
+            </div>
+            <button 
+              onClick={handleSend} 
+              disabled={isSending || !inputContent.trim()}
+            >
+              {isSending ? '发送中...' : '发送'}
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="limit-notice">
+              您已完成5条消息，现在可以生成您的职业洞见报告
+            </div>
+            <button 
+              onClick={handleGenerateReport}
+              className="generate-report-btn"
+            >
+              生成报告
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## ⚠️ 聊天消息错误处理
+
+### 常见错误码
+
+| HTTP状态码 | 错误信息 | 处理方式 |
+|-----------|---------|---------|
+| 403 | `MESSAGE_LIMIT_EXCEEDED` | 已达到5条限制，发送按钮变成"生成报告"按钮 |
+| 404 | `Profile data incomplete` | 显示错误提示，引导完善个人信息 |
+| 500 | `LLM_ERROR` | **弹窗让用户重试，不计次** |
+| 500 | 其他服务器错误 | 弹窗让用户重试 |
+
+### 错误处理要点
+
+1. **AI错误不计次**: 
+   - 收到 `500 LLM_ERROR` 时，用户消息已被后端回滚
+   - 前端需要移除已显示的用户消息（如果使用了乐观更新）
+   - 弹窗提示用户重试，保留输入内容
+
+2. **达到限制**:
+   - 当消息计数达到5条时，发送按钮自动变成"生成报告"按钮
+   - 隐藏输入框，显示提示信息
+   - 用户点击"生成报告"按钮后，调用报告生成接口
+
+3. **网络错误**:
+   - 捕获网络异常，弹窗让用户重试
+   - 同样不计次，保留输入内容
+
+---
+
+## 🔑 聊天消息关键要点总结
+
+### ✅ 必须实现的功能
+
+1. **前端验证**: 消息内容必须在1-1000字符之间
+2. **次数限制**: 显示已发送消息数量（最多5条）
+3. **按钮切换**: 达到5条消息时，发送按钮自动变成"生成报告"按钮
+4. **AI错误处理**: AI服务错误时弹窗让用户重试，不计次
+5. **消息历史**: 页面加载时获取并显示聊天历史
+
+### 📝 注意事项
+
+1. **乐观更新**:
+   - 可以先显示用户消息，但如果AI调用失败，需要移除
+   - 因为后端已回滚，用户消息不会被保存
+
+2. **重试机制**:
+   - AI错误时弹窗让用户选择是否重试
+   - 保留输入内容，方便用户重试
+   - 重试时递归调用发送函数
+
+3. **次数统计和按钮切换**:
+   - 前端需要统计已发送的用户消息数量
+   - 达到5条时，发送按钮自动变成"生成报告"按钮
+   - 隐藏输入框，显示提示信息
+   - 可以从聊天历史中统计，或从API响应中获取
+
+4. **用户体验**:
+   - 发送中显示加载状态
+   - 失败时显示清晰的错误提示
+   - 提供重试选项（AI错误时）
+
+---
+
+## 📞 聊天消息后端处理机制
+
+后端已实现以下机制（前端无需处理）：
+
+- **AI错误回滚**: AI调用失败时，自动回滚用户消息，不占用次数限制
+- **次数检查**: 发送前检查是否达到5条限制
+- **状态更新**: 第一条消息时更新 `chat_status` 为 `COMPLETED`
+- **事务保证**: 只有AI调用成功后才提交所有更改
+
+---
+
+## 🧪 聊天消息测试建议
+
+1. **正常流程测试**: 发送消息→收到AI回复
+2. **AI错误测试**: 模拟AI服务错误→弹窗提示→重试成功
+3. **次数限制测试**: 发送5条消息后→发送按钮变成"生成报告"按钮→点击生成报告
+4. **网络错误测试**: 网络中断→弹窗提示→重试
+5. **并发测试**: 快速连续发送多条消息→确保不会重复计数
 
 ---
 
