@@ -5,12 +5,33 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import String, JSON, TEXT, ForeignKey
-from sqlalchemy.types import TIMESTAMP
+from sqlalchemy.types import TIMESTAMP, TypeDecorator
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
 
 from app.core.database import Base
+from app.core.security import encrypt_data, decrypt_data
+
+# (P1) 自定义加密类型
+class EncryptedText(TypeDecorator):
+    """
+    一个自定义的 SQLAlchemy 类型，用于在存入数据库时自动加密，
+    并在从数据库读出时自动解密。
+    """
+    impl = TEXT
+
+    def process_bind_param(self, value, dialect):
+        """在数据写入数据库前调用"""
+        if value is not None:
+            return encrypt_data(str(value))
+        return value
+
+    def process_result_value(self, value, dialect):
+        """在数据从数据库读出后调用"""
+        if value is not None:
+            return decrypt_data(str(value))
+        return value
 
 # Define TIMESTAMPTZ as TIMESTAMP(timezone=True)
 TIMESTAMPTZ = TIMESTAMP(timezone=True)
@@ -64,10 +85,10 @@ class FutureProfile(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     profile_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    future_values: Mapped[Optional[str]] = mapped_column(TEXT)
-    future_vision: Mapped[Optional[str]] = mapped_column(TEXT)
-    future_obstacles: Mapped[Optional[str]] = mapped_column(TEXT)
-    profile_description: Mapped[Optional[str]] = mapped_column(TEXT)
+    future_values: Mapped[Optional[str]] = mapped_column(EncryptedText)
+    future_vision: Mapped[Optional[str]] = mapped_column(EncryptedText)
+    future_obstacles: Mapped[Optional[str]] = mapped_column(EncryptedText)
+    profile_description: Mapped[Optional[str]] = mapped_column(EncryptedText)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
 
@@ -89,7 +110,7 @@ class Letter(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    content: Mapped[str] = mapped_column(TEXT, nullable=False)
+    content: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="PENDING")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
@@ -107,7 +128,7 @@ class LetterReply(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     letter_id: Mapped[UUID] = mapped_column(ForeignKey("letters.id", ondelete="CASCADE"), nullable=False)
     future_profile_id: Mapped[UUID] = mapped_column(ForeignKey("future_profiles.id", ondelete="CASCADE"), nullable=False)
-    content: Mapped[str] = mapped_column(TEXT, nullable=False)
+    content: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     chat_status: Mapped[str] = mapped_column(String(50), nullable=False, default="NOT_STARTED")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
@@ -124,7 +145,7 @@ class ChatMessage(Base):
     future_profile_id: Mapped[UUID] = mapped_column(ForeignKey("future_profiles.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     sender: Mapped[str] = mapped_column(String(50), nullable=False)
-    content: Mapped[str] = mapped_column(TEXT, nullable=False)
+    content: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
 
@@ -137,7 +158,7 @@ class Report(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    content: Mapped[Optional[str]] = mapped_column(TEXT)
+    content: Mapped[Optional[str]] = mapped_column(EncryptedText)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="GENERATING")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
@@ -153,7 +174,7 @@ class VectorMemory(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     future_profile_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("future_profiles.id", ondelete="CASCADE"))
     doc_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    text_chunk: Mapped[Optional[str]] = mapped_column(TEXT)
+    text_chunk: Mapped[Optional[str]] = mapped_column(EncryptedText)
     embedding: Mapped[Vector] = mapped_column(Vector(1024))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, default=func.now(), onupdate=func.now())
