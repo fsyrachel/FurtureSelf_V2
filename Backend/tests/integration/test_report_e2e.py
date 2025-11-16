@@ -267,3 +267,5 @@ def test_report_idempotency(
     
     print("✅ 幂等性验证通过：已生成的报告无法重复生成")
 
+
+

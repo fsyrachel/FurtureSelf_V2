@@ -36,3 +36,5 @@ def test_user_init_returns_existing_user(client, db_session):
     assert data["user_id"] == str(existing_user.id)
     assert data["status"] == "ACTIVE"
 
+
+
