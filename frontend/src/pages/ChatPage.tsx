@@ -245,15 +245,24 @@ export default function ChatPage() {
               <div className="rounded-xl border border-emerald-400/60 bg-emerald-500/10 p-4 text-center">
                 <p className="text-sm text-emerald-100 font-semibold">💬 链接已完成</p >
                 <p className="mt-1 text-xs text-emerald-200/80">
+<<<<<<< HEAD
                   你已完成本次 {MAX_USER_MESSAGES} 轮深度交互。现在可以生成本次链接的时空洞察报告了！
                 </p >
+=======
+                  你已完成 {MAX_USER_MESSAGES} 轮对话。现在可以生成职业洞见报告了！
+                </p>
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
                 <Button
                   onClick={handleGenerateReport}
                   loading={isGeneratingReport}
                   disabled={isGeneratingReport}
                   className="mt-4 min-w-[200px]"
                 >
+<<<<<<< HEAD
                   生成时空洞察报告
+=======
+                  生成报告
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
                 </Button>
               </div>
             ) : userMessageCount >= MAX_USER_MESSAGES ? (
@@ -263,8 +272,13 @@ export default function ChatPage() {
                   <div className="w-2 h-2 bg-sky-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                   <div className="w-2 h-2 bg-sky-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
                 </div>
+<<<<<<< HEAD
                 <p className="mt-2 text-sm text-sky-100">未来化身正在处理你的最后一条信息...</p >
                 <p className="mt-1 text-xs text-sky-200/80">请稍候，回复完成后即可生成报告</p >
+=======
+                <p className="mt-2 text-sm text-sky-100">未来的自己正在回复最后一条消息...</p>
+                <p className="mt-1 text-xs text-sky-200/80">请稍候，回复完成后即可生成报告</p>
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
               </div>
             ) : (
             <div className="flex gap-3">

@@ -126,7 +126,11 @@ class ReportGenerateResponse(BaseModel):
     status: str = "GENERATING"
     letter_id: Optional[uuid.UUID] = None
     future_profile_id: Optional[uuid.UUID] = None
+<<<<<<< HEAD
     
+=======
+
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
 # --- F5.3 (Report Status) ---
 class ReportStatusResponse(BaseModel):
     status: str # 'GENERATING', 'READY', or 'FAILED'

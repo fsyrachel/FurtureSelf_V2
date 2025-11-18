@@ -25,7 +25,11 @@ const createDefaultDemoData = (): DemoData => ({
   gender: '',
   status: '',
   field: '',
+<<<<<<< HEAD
   interests: '',
+=======
+  interests: '',  // 后端期望字符串
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
   location: '',
   future_location: '',
 })

@@ -35,7 +35,11 @@ export function DemoForm({ values, onChange, errors }: DemoFormProps) {
     { value: 'FEMALE', label: '女' },
     { value: 'OTHER', label: '其他' },
   ]
+<<<<<<< HEAD
 
+=======
+  
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
   const toggleInterest = (interest: string) => {
     // 将字符串按逗号分隔转为数组
     const interestsArray = values.interests ? values.interests.split(',').map(s => s.trim()).filter(Boolean) : []
@@ -69,8 +73,12 @@ export function DemoForm({ values, onChange, errors }: DemoFormProps) {
             className="w-full rounded-lg border border-white/20 bg-white/10 px-4 py-3 text-white placeholder:text-slate-300 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300/40"
           />
         </div>
+<<<<<<< HEAD
 
               <div>
+=======
+      <div>
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
           <label className="mb-2 block text-sm font-medium text-slate-200">性别</label>
           <select
             value={values.gender}
@@ -86,8 +94,12 @@ export function DemoForm({ values, onChange, errors }: DemoFormProps) {
               </option>
             ))}
           </select>
+<<<<<<< HEAD
         </div>
 
+=======
+        </div>       
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-200">年龄</label>
           <input
@@ -135,7 +147,9 @@ export function DemoForm({ values, onChange, errors }: DemoFormProps) {
         <label className="mb-3 block text-sm font-medium text-slate-200">兴趣方向（可多选）</label>
         <div className="grid gap-3 sm:grid-cols-2">
           {INTEREST_OPTIONS.map((interest) => {
-            const checked = values.interests.includes(interest)
+            // 将字符串按逗号分隔转为数组来检查
+            const interestsArray = values.interests ? values.interests.split(',').map(s => s.trim()).filter(Boolean) : []
+            const checked = interestsArray.includes(interest)
             return (
               <label
                 key={interest}

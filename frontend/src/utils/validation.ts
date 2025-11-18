@@ -16,7 +16,11 @@ export const validateDemoData = (data: any): string[] => {
   if (!data.field) {
     errors.push('请输入专业领域')
   }
+<<<<<<< HEAD
   if (!data.interests) {
+=======
+  if (!data.interests || data.interests.length < 1) {
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
     errors.push('请至少选择一个兴趣方向')
   }
   if (!data.location) {

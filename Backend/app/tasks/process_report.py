@@ -24,7 +24,11 @@ def async_to_sync(awaitable):
     max_retries=MAX_RETRIES,  # 最大重试次数
     default_retry_delay=RETRY_DELAY,  # 默认重试延迟
 )
+<<<<<<< HEAD
 def generate_report(self, report_id: str, user_id: str, letter_id: str = None, future_profile_id: str = None, **kwargs):
+=======
+def generate_report(self, report_id: str, user_id: str, letter_id: str = None, future_profile_id: str = None):
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
     """
     (P1) F4.5 异步总结任务 (Tech Specs v1.5, 4.2节)
     支持可选参数：
@@ -32,8 +36,11 @@ def generate_report(self, report_id: str, user_id: str, letter_id: str = None, f
     - future_profile_id: 指定未来人设ID（可选，默认使用所有聊天记录）
     """
     logger.info(f"F4.5 (Worker): 收到任务! ReportID: {report_id}, UserID: {user_id}")
+<<<<<<< HEAD
     if kwargs:
         logger.debug(f"F4.5 (Worker): 收到额外的 kwargs: {kwargs}")
+=======
+>>>>>>> b218fc476dc540b3f1ff99140de32a837678d817
     if letter_id:
         logger.info(f"F4.5 (Worker): 指定信件ID: {letter_id}")
     if future_profile_id:
